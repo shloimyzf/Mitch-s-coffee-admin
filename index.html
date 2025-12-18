@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mitch's Coffee</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .animate-in { animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+
+<body class="bg-stone-50 text-stone-900">
+
+<div id="app">
+  <div class="min-h-screen flex flex-col items-center justify-center gap-4">
+    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600"></div>
+    <p class="text-stone-400 text-sm font-medium">Connecting to Mitch's Coffee…</p>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+  import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+
+  /* ================= FIREBASE CONFIG ================= */
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCMcxuH-8Pc0t8eC71xOU8TXLu0ZoF-RG4",
+    authDomain: "mitches-coffee.firebaseapp.com",
+    projectId: "mitches-coffee",
+    storageBucket: "mitches-coffee.firebasestorage.app",
+    messagingSenderId: "789709713646",
+    appId: "1:789709713646:web:3f09ce026b40a85b3f03ff"
+  };
+
+  const appId = "mitchs-coffee";
+
+  /* ================= STATE ================= */
+
+  let db, auth;
+  let authReady = false;
+
+  let state = {
+    user: null,
+    isLoggedIn: false,
+    view: "customer",
+    isAdminAuth: false,
+    customerName: "",
+    dormRoom: "",
+    orders: [],
+    cart: [],
+    notification: null,
+    lastNotifiedId: null
+  };
+
+  const MENU = [
+    { id: "hot-latte", name: "Hot Latte", priceS: 5, priceL: 6 },
+    { id: "iced-latte", name: "Iced Latte", priceS: 5, priceL: 6 },
+    { id: "vanilla-latte", name: "Vanilla Latte", priceS: 5, priceL: 6 },
+    { id: "hot-cocoa", name: "Hot Cocoa", priceS: 5, priceL: 6 },
+    { id: "cookie", name: "Chocolate Chip Cookie", priceS: 1 }
+  ];
+
+  const ADMIN_CODE = "222";
+
+  /* ================= INIT ================= */
+
+  async function init() {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+
+    await signInAnonymously(auth);
+
+    onAuthStateChanged(auth, user => {
+      state.user = user;
+      authReady = true;
+      if (user) listenOrders();
+      render();
+    });
+  }
+
+  function listenOrders() {
+    const ref = collection(db, "artifacts", appId, "public", "data", "orders");
+    onSnapshot(ref, snap => {
+      state.orders = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+      render();
+    });
+  }
+
+  /* ================= UI ================= */
+
+  function render() {
+    if (!authReady) return;
+
+    const root = document.getElementById("app");
+
+    if (!state.isLoggedIn) {
+      root.innerHTML = loginView();
+    } else {
+      root.innerHTML = `
+        ${header()}
+        <main class="max-w-md mx-auto p-4 space-y-4">
+          ${state.view === "customer" ? customerView() : adminView()}
+        </main>
+        ${state.notification ? toast() : ""}
+      `;
+    }
+    lucide.createIcons();
+  }
+
+  const toast = () => `
+    <div class="fixed top-4 left-4 right-4 bg-stone-900 text-white p-4 rounded-2xl text-center font-bold">
+      ${state.notification}
+    </div>
+  `;
+
+  const header = () => `
+    <header class="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+      <h1 class="font-black text-xl">Mitch's Coffee</h1>
+      <div class="flex gap-2">
+        <button onclick="setView('customer')" class="px-3 py-1 rounded ${state.view==='customer'?'bg-amber-600 text-white':''}">Menu</button>
+        <button onclick="setView('admin')" class="px-3 py-1 rounded ${state.view==='admin'?'bg-stone-900 text-white':''}">Admin</button>
+      </div>
+    </header>
+  `;
+
+  const loginView = () => `
+    <div class="min-h-screen flex items-center justify-center">
+      <form class="bg-white p-8 rounded-3xl shadow-xl space-y-4" onsubmit="login(event)">
+        <h2 class="text-2xl font-black text-center">Welcome</h2>
+        <input id="name" required placeholder="Your name" class="w-full border p-3 rounded-xl"/>
+        <button class="w-full bg-stone-900 text-white py-3 rounded-xl font-bold">Start</button>
+      </form>
+    </div>
+  `;
+
+  const customerView = () => `
+    ${activeOrder()}
+    ${cartView()}
+    <div class="space-y-3">
+      ${MENU.map(i => `
+        <div class="bg-white p-4 rounded-2xl shadow flex justify-between">
+          <span class="font-bold">${i.name}</span>
+          <button onclick="add('${i.id}')" class="bg-amber-600 text-white p-2 rounded-xl">+</button>
+        </div>
+      `).join("")}
+    </div>
+  `;
+
+  const cartView = () => state.cart.length ? `
+    <div class="bg-stone-900 text-white p-4 rounded-2xl space-y-3">
+      ${state.cart.map(i => `<div>${i.qty}x ${i.name}</div>`).join("")}
+      <input placeholder="Dorm Room #" oninput="state.dormRoom=this.value" class="w-full p-2 rounded"/>
+      <button onclick="order()" class="w-full bg-amber-600 py-3 rounded-xl font-black">Order</button>
+    </div>
+  ` : "";
+
+  const activeOrder = () => {
+    const o = state.orders.find(o => o.userId === state.user.uid && o.status !== "completed");
+    if (!o) return "";
+    return `<div class="bg-white p-4 rounded-2xl shadow">Order status: <b>${o.status}</b></div>`;
+  };
+
+  const adminView = () => {
+    if (!state.isAdminAuth) {
+      return `
+        <form onsubmit="admin(event)" class="bg-white p-6 rounded-2xl shadow space-y-4">
+          <input id="pin" type="password" placeholder="Admin PIN" class="w-full border p-3 rounded"/>
+          <button class="w-full bg-stone-900 text-white py-3 rounded-xl">Enter</button>
+        </form>
+      `;
+    }
+
+    return state.orders.map(o => `
+      <div class="bg-white p-4 rounded-2xl shadow space-y-2">
+        <div class="font-bold">${o.customerName} — Room ${o.dormRoom}</div>
+        ${o.items.map(i => `<div>${i.qty}x ${i.name}</div>`).join("")}
+        <div class="flex gap-2">
+          <button onclick="setStatus('${o.id}','brewing')" class="bg-amber-600 text-white px-3 py-1 rounded">Brewing</button>
+          <button onclick="setStatus('${o.id}','ready')" class="bg-green-600 text-white px-3 py-1 rounded">Ready</button>
+          <button onclick="setStatus('${o.id}','completed')" class="bg-stone-900 text-white px-3 py-1 rounded">Done</button>
+        </div>
+      </div>
+    `).join("");
+  };
+
+  /* ================= ACTIONS ================= */
+
+  window.login = e => {
+    e.preventDefault();
+    state.customerName = document.getElementById("name").value;
+    state.isLoggedIn = true;
+    render();
+  };
+
+  window.setView = v => { state.view = v; render(); };
+
+  window.add = id => {
+    const item = MENU.find(i => i.id === id);
+    const existing = state.cart.find(c => c.id === id);
+    existing ? existing.qty++ : state.cart.push({ ...item, qty: 1 });
+    render();
+  };
+
+  window.order = async () => {
+    await addDoc(collection(db,"artifacts",appId,"public","data","orders"),{
+      customerName: state.customerName,
+      dormRoom: state.dormRoom,
+      items: state.cart,
+      status: "pending",
+      timestamp: serverTimestamp(),
+      userId: state.user.uid
+    });
+    state.cart = [];
+    state.notification = "Order sent!";
+    setTimeout(()=>state.notification=null,3000);
+    render();
+  };
+
+  window.admin = e => {
+    e.preventDefault();
+    if (document.getElementById("pin").value === ADMIN_CODE) {
+      state.isAdminAuth = true;
+      render();
+    }
+  };
+
+  window.setStatus = (id, s) => updateDoc(
+    doc(db,"artifacts",appId,"public","data","orders",id),
+    { status: s }
+  );
+
+  init();
+</script>
+</body>
+</html>
