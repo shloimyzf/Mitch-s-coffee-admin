@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Mitch's Coffee</title>
+  
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta name="theme-color" content="#924E23">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+  
+  <script type="text/javascript">
+    (function(){ emailjs.init("X_5xpqldnPZM4GwJh"); })();
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+    body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+    
+    .animate-in { animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .modal-enter { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    
+    .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
+    .menu-card { 
+        aspect-ratio: 1 / 1; display: flex; flex-direction: column; justify-content: flex-end; 
+        background-size: cover; background-position: center; position: relative; overflow: hidden;
+    }
+    .menu-card::after {
+        content: ''; position: absolute; inset: 0;
+        background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 100%); z-index: 1;
+    }
+    
+    .bg-brand { background-color: #924E23; } 
+    .text-brand { color: #924E23; }
+    .border-brand { border-color: #924E23; }
+  </style>
+</head>
+<body class="bg-stone-50 text-stone-900 pb-20 select-none">
+
+<div id="main-view">
+  <div class="min-h-screen flex flex-col items-center justify-center gap-4">
+    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-brand"></div>
+    <p class="text-stone-400 text-sm font-medium">Brewing the app...</p>
+  </div>
+</div>
+
+<div id="modal-layer" class="fixed inset-0 z-50 pointer-events-none flex items-end sm:items-center justify-center"></div>
+<div id="toast-layer" class="fixed top-4 left-4 right-4 z-[60] pointer-events-none"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+  import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+
+  /* ================= CONFIG ================= */
+  const firebaseConfig = {
+    apiKey: "AIzaSyCMcxuH-8Pc0t8eC71xOU8TXLu0ZoF-RG4",
+    authDomain: "mitches-coffee.firebaseapp.com",
+    projectId: "mitches-coffee",
+    storageBucket: "mitches-coffee.firebasestorage.app",
+    messagingSenderId: "789709713646",
+    appId: "1:789709713646:web:3f09ce026b40a85b3f03ff"
+  };
+
+  const appId = "mitchs-coffee";
+  const ADMIN_CODE = "222";
+  const EMAIL_SERVICE_ID = "service_m3qf2td";
+  const EMAIL_TEMPLATE_ID = "template_c7bbquk"; 
+  const ADMIN_CONTACTS = ["8457092605@vtext.com", "8482102496@vtext.com"];
+  const CARRIERS = { "Verizon": "@vtext.com", "AT&T": "@txt.att.net", "T-Mobile": "@tmomail.net", "Sprint": "@messaging.sprintpcs.com", "None": "" };
+
+  /* ================= STATE ================= */
+  let db, auth;
+  let deferredPrompt; 
+  let state = {
+    user: null, deviceId: null, isLoggedIn: false, view: "customer", isAdminAuth: false,
+    customerName: "", customerPhone: "", customerCarrier: "", customerEmail: "",
+    dormRoom: "", orders: [], cart: [], isDelivery: false, lastId: null,
+    settings: { deliveryEnabled: true, shopOpen: true },
+    modal: { isOpen: false, item: null, size: null, syrup: 'None', pumps: 0 },
+    showInstall: false
+  };
+
+  // --- PHOTOS CONFIGURATION ---
+  // You can replace these URLs with your own images if you want!
+  const MENU_ITEMS = [
+    { id: 'hot-latte', name: 'Regular Hot Latte', category: 'Lattes', type: 'drink', image: 'https://images.unsplash.com/photo-1570968992193-6e5c922e4959?q=80&w=800&auto=format&fit=crop' },
+    { id: 'iced-latte', name: 'Regular Iced Latte', category: 'Lattes', type: 'drink', image: 'https://images.unsplash.com/photo-1517701604599-bb29b5dd7359?q=80&w=800&auto=format&fit=crop' },
+    { id: 'vanilla-hot-latte', name: 'Vanilla Hot Latte', category: 'Lattes', type: 'drink', image: 'https://images.unsplash.com/photo-1585421577626-4447385f956c?q=80&w=800&auto=format&fit=crop' },
+    { id: 'vanilla-iced-latte', name: 'Vanilla Iced Latte', category: 'Lattes', type: 'drink', image: 'https://images.unsplash.com/photo-1640105349386-3532f8df1d07?q=80&w=800&auto=format&fit=crop' },
+    { id: 'brown-sugar-hot', name: 'Brown Sugar Hot Latte', category: 'Lattes', type: 'drink', image: 'https://images.unsplash.com/photo-1634629431872-9d0c64917409?q=80&w=800&auto=format&fit=crop' },
+    { id: 'brown-sugar-iced', name: 'Brown Sugar Iced Latte', category: 'Lattes', type: 'drink', image: 'https://images.unsplash.com/photo-1627349941198-d45c630121c2?q=80&w=800&auto=format&fit=crop' },
+    { id: 'hot-cocoa', name: 'Regular Hot Cocoa', category: 'Hot Cocoa', type: 'drink', image: 'https://images.unsplash.com/photo-1542990253-0d0f5be5f0ed?q=80&w=800&auto=format&fit=crop' },
+    { id: 'choc-chip', name: 'Chocolate Chip Cookie', category: 'Cookies', type: 'cookie', image: 'https://images.unsplash.com/photo-1499636138143-bd630f5cf386?q=80&w=800&auto=format&fit=crop' },
+  ];
+  const CATEGORIES = ['Lattes', 'Hot Cocoa', 'Cookies'];
+
+  /* ================= LOGIC ================= */
+  async function init() {
+    setupIdentity();
+    
+    // Register Service Worker for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js')
+        .then(() => console.log('SW Registered'))
+        .catch(err => console.log('SW Fail', err));
+    }
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      state.showInstall = true;
+      renderMain();
+    });
+
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+    await signInAnonymously(auth);
+    
+    onAuthStateChanged(auth, user => {
+      state.user = user;
+      if (user) {
+          listenOrders();
+          listenSettings();
+      }
+      renderMain();
+    });
+  }
+
+  function setupIdentity() {
+    let storedId = localStorage.getItem('mitch_device_id');
+    if (!storedId) {
+        storedId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('mitch_device_id', storedId);
+    }
+    state.deviceId = storedId;
+    const storedName = localStorage.getItem('mitch_customer_name');
+    const storedPhone = localStorage.getItem('mitch_customer_phone');
+    const storedCarrier = localStorage.getItem('mitch_customer_carrier');
+    const storedEmail = localStorage.getItem('mitch_customer_email');
+    
+    if (storedName && storedEmail) {
+        state.customerName = storedName;
+        state.customerPhone = storedPhone || "";
+        state.customerCarrier = storedCarrier || "";
+        state.customerEmail = storedEmail;
+        state.isLoggedIn = true;
+    }
+    if (localStorage.getItem('mitch_admin_auth') === 'true') state.isAdminAuth = true;
+  }
+
+  function listenOrders() {
+    const ref = collection(db, "artifacts", appId, "public", "data", "orders");
+    onSnapshot(ref, snap => {
+      state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+      
+      if(state.view === 'admin' && state.isAdminAuth && state.orders.length > 0) {
+        const latest = state.orders[0];
+        if(latest.status === 'pending' && state.lastId !== latest.id) {
+            state.lastId = latest.id;
+            showToast(`New Order from ${latest.customerName}!`);
+        }
+      }
+      
+      const activeEl = document.activeElement;
+      const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+      if (!isTyping) {
+        renderMain();
+      }
+    });
+  }
+
+  function listenSettings() {
+      const docRef = doc(db, "artifacts", appId, "public", "data", "settings", "global");
+      onSnapshot(docRef, (docSnap) => {
+          if (docSnap.exists()) {
+              state.settings = docSnap.data();
+              if (!state.settings.deliveryEnabled && state.isDelivery) {
+                  state.isDelivery = false;
+                  state.dormRoom = "";
+              }
+              renderMain();
+          } else {
+              setDoc(docRef, { deliveryEnabled: true, shopOpen: true });
+          }
+      });
+  }
+
+  window.installPwa = async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') state.showInstall = false;
+      deferredPrompt = null;
+      renderMain();
+  };
+
+  window.toggleDeliverySetting = () => {
+      const newState = !state.settings.deliveryEnabled;
+      setDoc(doc(db, "artifacts", appId, "public", "data", "settings", "global"), { deliveryEnabled: newState }, { merge: true });
+  };
+
+  window.toggleShopOpen = () => {
+      const newState = !state.settings.shopOpen;
+      setDoc(doc(db, "artifacts", appId, "public", "data", "settings", "global"), { shopOpen: newState }, { merge: true });
+  };
+
+  function getPrice(itemId, size) {
+    if (itemId === 'hot-cocoa') return size === 'Small' ? 3.50 : 4.00;
+    return size === 'Small' ? 4.00 : 5.00;
+  }
+
+  function sendNotifyToStudent(order) {
+    const message = `Hey ${order.customerName}, your Mitch's Coffee order is READY! Come to room 101.`;
+    const fromName = "Mitch's Coffee";
+    const replyTo = "noreply@mitchscoffee.com";
+    if (order.customerPhone && order.customerCarrier && order.customerCarrier !== 'None') {
+        emailjs.send(EMAIL_SERVICE_ID, EMAIL_TEMPLATE_ID, { to_email: order.customerPhone + CARRIERS[order.customerCarrier], name: fromName, email: replyTo, message: message }).catch(err => console.log("SMS Failed"));
+    }
+    if (order.customerEmail && order.customerEmail.includes('@')) {
+        emailjs.send(EMAIL_SERVICE_ID, EMAIL_TEMPLATE_ID, { to_email: order.customerEmail, name: fromName, email: replyTo, message: message }).catch(err => console.log("Email Failed"));
+    }
+  }
+
+  function sendTextToAdmin(name, room) {
+    const message = `NEW ORDER: ${name} ${room ? 'in Room ' + room : '(Pickup)'}`;
+    ADMIN_CONTACTS.forEach(contact => {
+        emailjs.send(EMAIL_SERVICE_ID, EMAIL_TEMPLATE_ID, { to_email: contact, name: name, email: "noreply@mitchscoffee.com", message: message }).catch(err => console.log("Admin Text Failed"));
+    });
+  }
+
+  /* ================= USER ACTIONS ================= */
+  window.login = e => {
+    e.preventDefault();
+    const name = document.getElementById("loginName").value.trim();
+    const phone = document.getElementById("loginPhone").value.trim();
+    const carrier = document.getElementById("loginCarrier").value; 
+    const email = document.getElementById("loginEmail").value.trim();
+    
+    if (!name) return alert("Name is required!");
+    if (!email) return alert("Email is strictly required now!");
+    if (phone && (!carrier || carrier === "")) return alert("If adding phone, please select a carrier.");
+
+    state.customerName = name; 
+    state.customerPhone = phone;
+    state.customerCarrier = carrier;
+    state.customerEmail = email;
+    state.isLoggedIn = true; 
+    
+    localStorage.setItem('mitch_customer_name', name); 
+    localStorage.setItem('mitch_customer_phone', phone);
+    localStorage.setItem('mitch_customer_carrier', carrier);
+    localStorage.setItem('mitch_customer_email', email);
+    
+    renderMain(); 
+  };
+
+  window.logout = () => { localStorage.clear(); location.reload(); };
+  window.updateRoom = (val) => { state.dormRoom = val; };
+  window.setView = v => { state.view = v; renderMain(); };
+  window.setDelivery = v => { state.isDelivery = v; if(!v) state.dormRoom = ""; renderMain(); };
+  
+  window.openModal = (id) => {
+      if (!state.settings.shopOpen && !state.isAdminAuth) return showToast("Shop is Closed!");
+      const item = MENU_ITEMS.find(i => i.id === id);
+      let size = 'Large'; let pumps = 4; let syrup = 'None';
+      if (item.name.toLowerCase().includes('vanilla')) syrup = 'Vanilla';
+      else if (item.name.toLowerCase().includes('brown sugar')) syrup = 'Brown Sugar';
+      else if (item.name.toLowerCase().includes('regular') && item.category === 'Lattes') syrup = 'Classic';
+      if (syrup === 'None') pumps = 0;
+      state.modal = { isOpen: true, item, size, syrup, pumps };
+      renderModal();
+  };
+
+  window.closeModal = () => { state.modal.isOpen = false; renderModal(); setTimeout(() => { state.modal.item = null; }, 200); };
+  window.setModalSize = (s) => { state.modal.size = s; if (state.modal.syrup !== 'None') state.modal.pumps = (s === 'Small') ? 3 : 4; renderModal(); };
+  window.setModalSyrup = (s) => { state.modal.syrup = s; if (s === 'None') state.modal.pumps = 0; else state.modal.pumps = (state.modal.size === 'Small') ? 3 : 4; renderModal(); };
+  window.changeModalPumps = (d) => { state.modal.pumps = Math.max(0, Math.min(8, state.modal.pumps + d)); renderModal(); };
+
+  window.addToCartFromModal = () => {
+      const { item, size, syrup, pumps } = state.modal;
+      const price = item.type === 'drink' ? getPrice(item.id, size) : 1;
+      const existing = state.cart.find(c => c.id === item.id && c.size === size && c.syrupType === syrup && c.syrupPumps === pumps);
+      if (existing) existing.qty++; else state.cart.push({ ...item, size, price, syrupType: syrup, syrupPumps: pumps, qty: 1 });
+      state.modal.isOpen = false; renderModal(); renderMain(); 
+  };
+
+  window.removeCart = idx => { if (state.cart[idx].qty > 1) state.cart[idx].qty--; else state.cart.splice(idx, 1); renderMain(); };
+  window.addCartQty = idx => { state.cart[idx].qty++; renderMain(); };
+
+  window.order = async () => {
+    if (!state.cart.length) return showToast("Cart is empty!");
+    if (state.isDelivery && !state.dormRoom) return showToast("Room # required for Delivery!");
+    const sub = state.cart.reduce((s, i) => s + (i.price * i.qty), 0);
+    const total = sub + (state.isDelivery ? 1 : 0);
+    try {
+      await addDoc(collection(db, "artifacts", appId, "public", "data", "orders"), {
+        customerName: state.customerName, customerPhone: state.customerPhone, customerCarrier: state.customerCarrier, customerEmail: state.customerEmail,
+        dormRoom: state.dormRoom, items: state.cart, total, isDelivery: state.isDelivery, 
+        status: "pending", timestamp: serverTimestamp(), userId: state.user.uid, deviceId: state.deviceId 
+      });
+      state.cart = []; state.isDelivery = false; state.dormRoom = ""; 
+      showToast("Order Sent!");
+      sendTextToAdmin(state.customerName, state.dormRoom);
+      renderMain();
+    } catch(e) { showToast("Error sending order!"); console.error(e); }
+  };
+
+  window.adminAuth = e => { e.preventDefault(); if (document.getElementById("adminPin").value === ADMIN_CODE) { state.isAdminAuth = true; localStorage.setItem('mitch_admin_auth', 'true'); renderMain(); } else { showToast("Wrong Code!"); } };
+  window.adminLock = () => { state.isAdminAuth = false; localStorage.removeItem('mitch_admin_auth'); renderMain(); };
+  window.setStatus = (id, s) => { updateDoc(doc(db,"artifacts",appId,"public","data","orders",id), { status: s }); if (s === 'ready') { const order = state.orders.find(o => o.id === id); if (order) sendNotifyToStudent(order); } };
+  window.deleteOrder = id => deleteDoc(doc(db,"artifacts",appId,"public","data","orders",id));
+  function showToast(m) { const t = document.getElementById("toast-layer"); t.innerHTML = `<div class="animate-bounce bg-stone-900 text-white px-6 py-3 rounded-2xl shadow-2xl text-center font-bold border border-white/10 mx-auto max-w-xs">${m}</div>`; setTimeout(() => { t.innerHTML = ''; }, 3000); }
+
+  /* ================= UI RENDERERS ================= */
+  function renderMain() {
+    const root = document.getElementById("main-view");
+    const currentScroll = window.scrollY; // Preserve Scroll
+
+    let installBanner = '';
+    if (state.showInstall) {
+        installBanner = `
+        <div class="bg-stone-900 text-white p-3 flex justify-between items-center sticky top-0 z-50 shadow-md animate-in">
+            <div class="flex items-center gap-3">
+                <img src="icon.png" class="w-8 h-8 rounded-lg bg-white p-0.5">
+                <div><p class="text-xs font-bold">Install Mitch's Coffee</p><p class="text-[9px] text-stone-400">Add to home screen</p></div>
+            </div>
+            <button onclick="installPwa()" class="bg-brand px-3 py-1 rounded-full text-xs font-black uppercase shadow-lg">Install</button>
+        </div>
+        `;
+    }
+
+    if (!state.isLoggedIn) {
+        root.innerHTML = `
+        ${installBanner}
+        <div class="min-h-screen bg-stone-100 flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl text-center space-y-6 animate-in">
+                <div class="bg-brand w-20 h-20 rounded-2xl flex items-center justify-center mx-auto rotate-3 shadow-lg"><img src="icon.png" class="w-12 h-12 rounded-full shadow-lg"></div>
+                <h1 class="text-3xl font-black text-stone-900 tracking-tight italic">Mitch's Coffee</h1>
+                <form onsubmit="login(event)" class="space-y-4 text-left">
+                    <input required id="loginName" placeholder="Name" class="w-full bg-stone-50 border-2 border-stone-100 rounded-2xl px-6 py-4 text-lg outline-none focus:border-brand font-bold">
+                    
+                    <div class="space-y-2">
+                        <label class="text-xs font-black text-stone-400 ml-2 uppercase tracking-wide">Contact Info</label>
+                        <input type="email" required id="loginEmail" placeholder="Email Address (Required)" class="w-full bg-stone-50 border-2 border-brand/20 rounded-2xl px-6 py-4 text-lg outline-none focus:border-brand font-bold">
+                        <div class="relative flex py-1 items-center"><div class="flex-grow border-t border-gray-200"></div><span class="flex-shrink-0 mx-4 text-gray-300 text-xs font-bold">Optional Text Alerts</span><div class="flex-grow border-t border-gray-200"></div></div>
+                        <input type="tel" id="loginPhone" placeholder="Phone (Optional)" class="w-full bg-stone-50 border-2 border-stone-100 rounded-2xl px-6 py-4 text-lg outline-none focus:border-brand font-bold">
+                        <select id="loginCarrier" class="w-full bg-stone-50 border-2 border-stone-100 rounded-2xl px-6 py-4 text-lg outline-none focus:border-brand font-bold text-stone-600">
+                            <option value="">Carrier (Required if Phone #)</option>
+                            <option value="Verizon">Verizon</option>
+                            <option value="AT&T">AT&T</option>
+                            <option value="T-Mobile">T-Mobile</option>
+                            <option value="Sprint">Sprint</option>
+                        </select>
+                        <p class="text-[10px] text-red-500 font-bold text-center leading-tight pt-1">Note: Text alerts are often delayed or unreliable.</p>
+                    </div>
+                    <button class="w-full bg-brand text-white py-4 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-transform">Start Ordering</button>
+                </form>
+            </div>
+        </div>`;
+    } else {
+        root.innerHTML = `
+            ${installBanner}
+            <header class="bg-white/90 backdrop-blur-md border-b sticky top-0 z-40 px-4 py-4 flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                    <img src="icon.png" class="w-10 h-10 rounded-full shadow-md border-2 border-stone-100" alt="Mitch's Coffee">
+                    <h1 class="text-xl font-black italic">Mitch's</h1>
+                </div>
+                <div class="flex gap-2">
+                    ${state.view === 'customer' ? `<button onclick="logout()" class="px-3 py-2 rounded-xl text-xs font-black bg-stone-200 text-stone-600 uppercase">Log Out</button>` : ''}
+                    ${state.view === 'customer' ? `<button onclick="setView('admin')" class="px-3 py-2 rounded-xl text-xs font-black uppercase bg-stone-900 text-white"><i data-lucide="chef-hat" class="w-3 h-3 inline mr-1"></i>Admin</button>` : `<button onclick="setView('customer')" class="px-3 py-2 rounded-xl text-xs font-black uppercase bg-brand text-white">Menu</button>`}
+                </div>
+            </header>
+            <main class="max-w-md mx-auto p-4 space-y-6 pb-32">
+                ${!state.settings.shopOpen && state.view === 'customer' 
+                    ? `<div class="bg-stone-900 text-white p-6 rounded-3xl text-center space-y-4 shadow-xl border-4 border-red-500 animate-in">
+                         <div class="bg-red-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-2"><i data-lucide="moon" class="w-8 h-8 text-white"></i></div>
+                         <h2 class="text-3xl font-black italic">Mitch is not here!</h2>
+                         <p class="text-stone-400 font-bold">The shop is currently closed. Come back later.</p>
+                       </div>`
+                    : ''}
+                ${state.view === 'customer' ? renderCustomer() : renderAdmin()}
+            </main>
+        `;
+    }
+    window.scrollTo(0, currentScroll); // Restore Scroll Position
+    lucide.createIcons();
+  }
+
+  function renderModal() {
+      const container = document.getElementById("modal-layer");
+      const { isOpen, item, size, syrup, pumps } = state.modal;
+      if (!isOpen || !item) { container.innerHTML = ''; container.style.pointerEvents = 'none'; return; }
+      container.style.pointerEvents = 'auto';
+      
+      let syrupName = 'Classic';
+      if (item.name.includes('Vanilla')) syrupName = 'Vanilla';
+      if (item.name.includes('Brown Sugar')) syrupName = 'Brown Sugar';
+
+      let priceDisplay = getPrice(item.id, size).toFixed(2);
+      if (item.type !== 'drink') priceDisplay = '1.00';
+
+      // ADDED: Main Photo in Modal
+      container.innerHTML = `
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeModal()"></div>
+        <div class="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2rem] p-0 relative z-10 shadow-2xl space-y-0 pb-10 modal-enter overflow-hidden">
+            
+            <div class="relative h-48 w-full bg-stone-200">
+                <img src="${item.image}" class="w-full h-full object-cover">
+                <button onclick="closeModal()" class="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full backdrop-blur-md"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-6 pt-12">
+                     <h2 class="text-3xl font-black text-white leading-none">${item.name}</h2>
+                     <p class="text-stone-300 font-bold text-sm mt-1">$${priceDisplay}</p>
+                </div>
+            </div>
+
+            <div class="p-6 space-y-6">
+            ${item.type === 'drink' ? `
+                <div class="space-y-4">
+                     <div>
+                         <label class="text-xs font-black text-stone-400 uppercase tracking-widest ml-1">Size</label>
+                         <div class="bg-stone-100 p-1 rounded-2xl flex mt-1">
+                            <button onclick="setModalSize('Small')" class="flex-1 py-3 rounded-xl text-xs font-black transition-all ${size==='Small'?'bg-white text-brand shadow-md':'text-stone-400'}">Small ($${getPrice(item.id, 'Small').toFixed(2)})</button>
+                            <button onclick="setModalSize('Large')" class="flex-1 py-3 rounded-xl text-xs font-black transition-all ${size==='Large'?'bg-white text-brand shadow-md':'text-stone-400'}">Large ($${getPrice(item.id, 'Large').toFixed(2)})</button>
+                         </div>
+                    </div>
+                    <div>
+                         <label class="text-xs font-black text-stone-400 uppercase tracking-widest ml-1">Flavor</label>
+                         <div class="bg-stone-100 p-1 rounded-2xl flex mt-1">
+                            <button onclick="setModalSyrup('${syrupName}')" class="flex-1 py-3 rounded-xl text-xs font-black transition-all ${syrup!=='None'?'bg-white text-brand shadow-md':'text-stone-400'}">${syrupName}</button>
+                            <button onclick="setModalSyrup('None')" class="flex-1 py-3 rounded-xl text-xs font-black transition-all ${syrup==='None'?'bg-white text-stone-900 shadow-md':'text-stone-400'}">No Syrup</button>
+                         </div>
+                    </div>
+                    ${syrup !== 'None' ? `
+                        <div class="animate-in">
+                            <label class="text-xs font-black text-stone-400 uppercase tracking-widest ml-1">Sweetness Level (Pumps)</label>
+                            <div class="flex items-center justify-between bg-stone-50 border-2 border-stone-100 p-2 rounded-2xl mt-1">
+                                <button onclick="changeModalPumps(-1)" class="w-10 h-10 bg-white rounded-xl shadow-sm border border-stone-200 flex items-center justify-center"><i data-lucide="minus" class="w-4 h-4 text-stone-400"></i></button>
+                                <span class="font-black text-2xl text-brand">${pumps}</span>
+                                <button onclick="changeModalPumps(1)" class="w-10 h-10 bg-brand text-white rounded-xl shadow-lg flex items-center justify-center"><i data-lucide="plus" class="w-4 h-4"></i></button>
+                            </div>
+                        </div>` : ''}
+                </div>` : ''}
+            <button onclick="addToCartFromModal()" class="w-full bg-brand text-white py-4 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2">
+                Add to Order <span class="bg-white/20 px-2 py-0.5 rounded text-sm">$${priceDisplay}</span>
+            </button>
+            </div>
+        </div>`;
+      lucide.createIcons();
+  }
+
+  function renderCustomer() {
+    const now = Date.now();
+    const myOrders = state.orders.filter(o => o.deviceId === state.deviceId && o.status !== 'completed' && (now - (o.timestamp?.toMillis() || now) < 3600000));
+    const cartTotal = state.cart.reduce((s, i) => s + (i.price * i.qty), 0) + (state.isDelivery ? 1 : 0);
+    
+    if (!state.settings.shopOpen) {
+        return `
+            ${myOrders.map(o => `
+            <section class="bg-white p-6 rounded-[2.5rem] shadow-xl border-4 ${o.status==='ready'?'border-green-400':'border-amber-400'} space-y-5 animate-in relative overflow-hidden mb-4">
+                <div class="flex justify-between items-center relative z-10">
+                    <h3 class="font-black text-sm uppercase flex items-center gap-2 tracking-widest text-amber-800">
+                        ${o.status==='ready' ? '<i data-lucide="check-circle" class="text-green-500"></i> READY!' : '<i data-lucide="zap" class="animate-pulse text-amber-500"></i> PROGRESS'}
+                    </h3>
+                    <div class="flex gap-1">
+                      ${o.isDelivery ? '<span class="text-[8px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded">DELIVERY</span>' : ''}
+                      <span class="text-[10px] font-black bg-stone-100 px-2 py-1 rounded">#${o.id.slice(-4)}</span>
+                    </div>
+                </div>
+                <div class="flex justify-between items-center bg-stone-50 p-4 rounded-2xl border border-stone-100"><span class="text-2xl font-black uppercase italic text-stone-900 tracking-tighter">Status: ${o.status}</span></div>
+                <div class="bg-stone-50 rounded-2xl p-4 space-y-3 border border-stone-100 text-xs">
+                    ${o.items.map(it => `<div class="flex flex-col border-b border-stone-200 last:border-0 pb-2"><div class="flex justify-between font-black text-stone-800 text-sm"><span>${it.qty}x ${it.name}</span><span class="text-stone-500">${it.size}</span></div></div>`).join('')}
+                </div>
+            </section>`).join('')}
+        `;
+    }
+
+    return `
+        ${myOrders.map(o => `
+            <section class="bg-white p-6 rounded-[2.5rem] shadow-xl border-4 ${o.status==='ready'?'border-green-400':'border-amber-400'} space-y-5 animate-in relative overflow-hidden mb-4">
+                <div class="flex justify-between items-center relative z-10">
+                    <h3 class="font-black text-sm uppercase flex items-center gap-2 tracking-widest text-amber-800">
+                        ${o.status==='ready' ? '<i data-lucide="check-circle" class="text-green-500"></i> READY!' : '<i data-lucide="zap" class="animate-pulse text-amber-500"></i> PROGRESS'}
+                    </h3>
+                    <div class="flex gap-1">
+                      ${o.isDelivery ? '<span class="text-[8px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded">DELIVERY</span>' : ''}
+                      <span class="text-[10px] font-black bg-stone-100 px-2 py-1 rounded">#${o.id.slice(-4)}</span>
+                    </div>
+                </div>
+                <div class="flex justify-between items-center bg-stone-50 p-4 rounded-2xl border border-stone-100"><span class="text-2xl font-black uppercase italic text-stone-900 tracking-tighter">Status: ${o.status}</span></div>
+                <div class="bg-stone-50 rounded-2xl p-4 space-y-3 border border-stone-100 text-xs">
+                    ${o.items.map(it => `<div class="flex flex-col border-b border-stone-200 last:border-0 pb-2"><div class="flex justify-between font-black text-stone-800 text-sm"><span>${it.qty}x ${it.name}</span><span class="text-stone-500">${it.size}</span></div>${it.type==='drink'?`<span class="text-brand font-black text-[9px] uppercase tracking-wider flex items-center gap-1 mt-1"><i data-lucide="droplets" class="w-3 h-3"></i>${it.syrupType==='None' ? 'NO SYRUP' : `${it.syrupPumps} PUMPS ${it.syrupType}`}</span>`:''}</div>`).join('')}
+                </div>
+            </section>`).join('')}
+
+        ${state.cart.length ? `
+            <section class="bg-stone-900 text-white p-6 rounded-3xl shadow-2xl space-y-5 animate-in">
+                <h2 class="text-xl font-black flex items-center gap-2 text-amber-400"><i data-lucide="shopping-bag" class="w-6 h-6"></i> Your Basket</h2>
+                ${state.settings.deliveryEnabled ? `
+                    <div class="grid grid-cols-2 gap-2 bg-white/5 p-1 rounded-2xl border border-white/10">
+                        <button onclick="setDelivery(false)" class="py-4 rounded-xl text-[10px] font-black uppercase transition-all flex flex-col items-center gap-1 ${!state.isDelivery ? 'bg-brand text-white shadow-lg' : 'text-stone-500 hover:bg-white/5'}"><i data-lucide="store" class="w-4 h-4"></i> Pickup</button>
+                        <button onclick="setDelivery(true)" class="py-4 rounded-xl text-[10px] font-black uppercase transition-all flex flex-col items-center gap-1 ${state.isDelivery ? 'bg-blue-600 text-white shadow-lg' : 'text-stone-500 hover:bg-white/5'}"><i data-lucide="truck" class="w-4 h-4"></i> Delivery ($1)</button>
+                    </div>
+                ` : `
+                    <div class="bg-white/10 p-3 rounded-2xl text-center text-xs font-bold text-stone-400 uppercase tracking-widest">Pickup Only Right Now</div>
+                `}
+                <div class="space-y-3 px-1">
+                    ${state.cart.map((item, idx) => `
+                        <div class="flex items-center justify-between text-sm">
+                            <div class="flex flex-col"><span class="font-bold">${item.qty}x ${item.name}</span><span class="text-[10px] text-stone-400 font-bold uppercase tracking-tighter">${item.size} ${item.syrupType!=='None'?`/ ${item.syrupPumps} Pumps ${item.syrupType}`:''}</span></div>
+                            <div class="flex items-center gap-2">
+                                <button onclick="removeCart(${idx})" class="p-1 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"><i data-lucide="minus" class="w-3 h-3"></i></button>
+                                <button onclick="addCartQty(${idx})" class="p-1 bg-black text-white rounded-lg hover:bg-stone-800 transition-colors"><i data-lucide="plus" class="w-3 h-3 text-white"></i></button>
+                                <span class="font-bold text-amber-400 ml-2">$${(item.price*item.qty).toFixed(2)}</span>
+                            </div>
+                        </div>`).join('')}
+                    ${state.isDelivery ? `<div class="flex justify-between text-[10px] text-blue-400 font-black uppercase tracking-widest border-t border-white/10 pt-3"><span>Delivery Fee</span><span>$1.00</span></div>` : ''}
+                </div>
+                <div class="space-y-3 pt-2">
+                    ${state.isDelivery ? `<input id="roomInput" oninput="updateRoom(this.value)" value="${state.dormRoom}" placeholder="Enter Dorm Room #" class="w-full bg-white/10 border-none rounded-2xl px-5 py-4 text-white outline-none placeholder:text-stone-600 font-black animate-in">` : ''}
+                    <button onclick="order()" class="w-full bg-brand text-white py-4 rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-transform">Place Order • $${cartTotal.toFixed(2)}</button>
+                </div>
+            </section>` : ''}
+        ${CATEGORIES.map(cat => `
+            <section class="space-y-4">
+                <h2 class="text-xl font-black border-b-2 pb-2 uppercase tracking-tight italic text-stone-900">${cat}</h2>
+                <div class="menu-grid">
+                    ${MENU_ITEMS.filter(i => i.category === cat).map(item => `
+                        <button onclick="openModal('${item.id}')" class="bg-brand rounded-[1.5rem] border shadow-md p-4 menu-card active:scale-[0.95] transition hover:shadow-xl relative overflow-hidden group text-left" style="background-image: url('${item.image}');">
+                            <div class="flex flex-col items-start gap-1 z-10 w-full h-full justify-between">
+                                <div><h3 class="font-black text-white text-md leading-tight drop-shadow-md">${item.name}</h3>${item.type === 'drink' ? `<span class="text-red-200 text-[10px] font-bold uppercase tracking-widest mt-1 block drop-shadow-md">Customize</span>` : ''}</div>
+                                <div class="flex w-full justify-between items-end">
+                                    <div class="text-white font-black bg-black/40 px-3 py-2 rounded-xl text-[10px] leading-tight text-center backdrop-blur-md">
+                                        ${item.type==='drink' ? `<div>$${getPrice(item.id, 'Small').toFixed(2)}</div><div>$${getPrice(item.id, 'Large').toFixed(2)}</div>` : '$1.00'}
+                                    </div>
+                                    <div class="bg-black/40 p-2 rounded-full backdrop-blur-md"><i data-lucide="plus" class="w-4 h-4 text-white"></i></div>
+                                </div>
+                            </div>
+                        </button>`).join('')}
+                </div>
+            </section>`).join('')}
+    `;
+  }
+
+  function renderAdmin() {
+    if(!state.isAdminAuth) {
+        return `
+            <div class="bg-white p-8 rounded-3xl border shadow-2xl text-center space-y-6 animate-in">
+                <div class="bg-stone-100 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto border-2 border-stone-200"><i data-lucide="lock" class="text-stone-400"></i></div>
+                <div><h1 class="text-2xl font-black italic">Mitch Only</h1><p class="text-stone-500 text-sm">Enter pin to see orders</p></div>
+                <form onsubmit="adminAuth(event)" class="space-y-4">
+                    <input type="password" id="adminPin" placeholder="PIN" class="w-full bg-stone-50 border-2 rounded-2xl px-4 py-4 text-center text-2xl font-black tracking-[1em] outline-none focus:border-stone-900">
+                    <button class="w-full bg-stone-900 text-white py-4 rounded-2xl font-bold text-lg shadow-xl">Open Queue</button>
+                </form>
+            </div>`;
+    }
+    return `
+        <div class="bg-stone-900 text-white p-4 rounded-2xl shadow-lg mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-black italic">Admin Panel</h2>
+                <button onclick="adminLock()" class="text-[10px] font-bold border border-white/20 px-3 py-1 rounded-lg uppercase">Lock</button>
+            </div>
+            <div class="grid grid-cols-2 gap-2 mb-2">
+                 <div class="bg-white/10 p-2 rounded-xl flex flex-col items-center justify-center gap-1">
+                    <span class="text-[10px] font-bold uppercase text-stone-400">Shop</span>
+                    <button onclick="toggleShopOpen()" class="w-full py-1.5 rounded-lg font-black text-xs uppercase transition-colors ${state.settings.shopOpen ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}">
+                        ${state.settings.shopOpen ? 'OPEN' : 'AWAY'}
+                    </button>
+                </div>
+                <div class="bg-white/10 p-2 rounded-xl flex flex-col items-center justify-center gap-1">
+                    <span class="text-[10px] font-bold uppercase text-stone-400">Delivery</span>
+                    <button onclick="toggleDeliverySetting()" class="w-full py-1.5 rounded-lg font-black text-xs uppercase transition-colors ${state.settings.deliveryEnabled ? 'bg-blue-600 text-white' : 'bg-stone-600 text-stone-400'}">
+                        ${state.settings.deliveryEnabled ? 'ON' : 'OFF'}
+                    </button>
+                </div>
+            </div>
+        </div>
+        ${state.orders.length === 0 ? '<p class="text-center py-20 text-stone-400 font-bold italic">No orders yet, Mitch!</p>' : ''}
+        ${state.orders.map(o => `
+            <div class="bg-white p-6 rounded-[2.5rem] border-2 shadow-sm transition-all ${o.status==='completed'?'opacity-40 border-stone-100':'border-brand shadow-lg'} mb-4">
+                <div class="flex justify-between items-start mb-4">
+                    <div><h3 class="font-black text-2xl">${o.customerName}</h3>${o.isDelivery ? `<span class="bg-blue-600 text-white text-[9px] font-black px-2 py-1 rounded uppercase mr-1">DELIVERY</span><span class="bg-amber-100 text-amber-800 text-xs font-black px-2 py-1 rounded uppercase tracking-tighter">Room ${o.dormRoom}</span>` : `<span class="bg-stone-200 text-stone-700 text-[9px] font-black px-2 py-1 rounded uppercase">PICKUP (Rm 101)</span>`}</div>
+                    <div class="flex flex-col items-end gap-2"><span class="text-[10px] px-3 py-1.5 rounded-full uppercase font-black bg-stone-100">${o.status}</span><button onclick="deleteOrder('${o.id}')" class="text-stone-300 hover:text-red-500 p-1 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>
+                </div>
+                <div class="space-y-2 mb-6 text-sm">
+                    ${o.items.map(it => `<div class="bg-stone-50 p-3 rounded-2xl border border-stone-100 flex justify-between items-center"><span class="font-black text-stone-800">${it.qty}x ${it.name} (${it.size})</span>${it.type==='drink'?`<span class="text-[10px] font-black uppercase ring-1 ring-stone-200 px-1 rounded text-stone-500">${it.syrupType==='None' ? 'NO SYRUP' : `${it.syrupPumps} ${it.syrupType}`}</span>`:''}</div>`).join('')}
+                    <div class="flex justify-between items-center pt-2 px-2 border-t mt-1 font-black"><span>Total Amount</span><span>$${o.total?.toFixed(2)}</span></div>
+                </div>
+                ${o.customerEmail ? `<div class="bg-blue-50 text-blue-700 text-[10px] font-black text-center py-1 rounded-lg border border-blue-200 mb-2">EMAIL: ${o.customerEmail}</div>` : ''}
+                ${o.customerPhone ? `<div class="bg-green-50 text-green-700 text-[10px] font-black text-center py-1 rounded-lg border border-green-200 mb-2">TEXT: ${o.customerPhone}</div>` : ''}
+                <div class="flex flex-col gap-2">
+                    ${o.status === 'pending' ? `<button onclick="setStatus('${o.id}', 'brewing')" class="w-full bg-brand text-white py-4 rounded-2xl font-black text-lg active:scale-95 transition-transform">Start Brewing</button>` : ''}
+                    ${o.status === 'brewing' ? `<button onclick="setStatus('${o.id}', 'ready')" class="w-full bg-green-600 text-white py-4 rounded-2xl font-black text-lg active:scale-95 transition-transform">Ready (Notify Student)</button>` : ''}
+                    ${o.status === 'ready' ? `<button onclick="setStatus('${o.id}', 'completed')" class="w-full bg-stone-900 text-white py-4 rounded-2xl font-black text-lg active:scale-95 transition-transform">Mark Completed</button>` : ''}
+                </div>
+            </div>`).join('')}
+    `;
+  }
+  init();
+</script>
+</body>
+</html>
