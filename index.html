@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Mitch's Super Admin</title>
+  
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="icon" type="image/png" href="icon.png">
+
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#E2CB9F">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+  
+  <script type="text/javascript">
+    (function(){
+      emailjs.init("X_5xpqldnPZM4GwJh");
+    })();
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+    :root { color-scheme: light; }
+    body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; background-color: #E2CB9F; }
+    .animate-in { animation: fadeIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    .modal-enter { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+    .hide-scroll::-webkit-scrollbar { display: none; }
+    .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* TABLET/DESKTOP LOGIC */
+    @media (min-width: 768px) {
+        /* When "Ledger" is active on desktop, display the workspace as a grid */
+        #ledger-workspace.desktop-active {
+            display: grid !important;
+            grid-template-columns: 1fr 350px;
+            gap: 1.5rem;
+            align-items: start;
+        }
+        /* On desktop, sections inside the workspace are always visible if the workspace is visible */
+        #ledger-workspace.desktop-active > div {
+            display: block !important;
+        }
+        /* Hide the sub-nav buttons that aren't needed on desktop if we group them */
+        .mobile-only-nav { display: none; }
+        
+        /* Show a specific desktop nav instead */
+        .desktop-nav { display: flex !important; }
+    }
+  </style>
+</head>
+<body class="bg-[#E2CB9F] text-[#432818] pb-24 select-none min-h-screen pt-14">
+
+<div class="fixed top-0 left-0 right-0 z-50 bg-[#E2CB9F]/95 backdrop-blur-md border-b border-[#432818]/10 px-4 py-2 shadow-sm">
+    <div class="max-w-6xl mx-auto flex gap-2">
+        <button onclick="switchView('kitchen')" id="nav-kitchen" class="flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-[#432818] text-[#E2CB9F] shadow-md flex items-center justify-center gap-2">
+            <i data-lucide="coffee" class="w-4 h-4"></i> Kitchen
+        </button>
+        <button onclick="switchView('ledger')" id="nav-ledger" class="flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-[#432818]/10 text-[#432818] hover:bg-[#432818]/20 flex items-center justify-center gap-2">
+            <i data-lucide="dollar-sign" class="w-4 h-4"></i> Ledger
+        </button>
+    </div>
+</div>
+
+<div id="view-kitchen" class="view-section animate-in">
+    <div class="max-w-6xl mx-auto p-4">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-black italic opacity-50">Queue</h2>
+            <div class="flex gap-2">
+                 <button onclick="requestPushPermission()" id="permBtn" class="text-[10px] font-bold border border-[#432818]/20 px-3 py-1 rounded-lg uppercase text-[#432818]/50">Alerts OFF</button>
+                 <button onclick="window.location.reload()" class="text-[10px] font-bold border border-[#432818]/20 px-3 py-1 rounded-lg uppercase hover:bg-[#432818] hover:text-[#E2CB9F]">Refresh</button>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-6">
+             <div class="bg-[#432818]/10 p-3 rounded-2xl flex flex-col items-center justify-center gap-1">
+                <span class="text-[10px] font-bold uppercase opacity-50">Shop Status</span>
+                <button onclick="toggleShopOpen()" id="btn-shop" class="w-full py-1.5 rounded-xl font-black text-xs uppercase transition-colors bg-green-600 text-white">OPEN</button>
+            </div>
+            <div class="bg-[#432818]/10 p-3 rounded-2xl flex flex-col items-center justify-center gap-1">
+                <span class="text-[10px] font-bold uppercase opacity-50">Delivery</span>
+                <button onclick="toggleDeliverySetting()" id="btn-delivery" class="w-full py-1.5 rounded-xl font-black text-xs uppercase transition-colors bg-blue-600 text-white">ON</button>
+            </div>
+            <div class="bg-[#432818]/10 p-3 rounded-2xl col-span-2 flex flex-col justify-center gap-1">
+                <span class="text-[10px] font-bold uppercase opacity-50 text-center">Inventory</span>
+                <div class="flex flex-wrap gap-1 justify-center" id="stock-toggles"></div>
+             </div>
+        </div>
+
+        <div id="kitchen-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+        <div id="kitchen-empty" class="hidden text-center py-20 opacity-50 font-bold italic border-2 border-[#432818]/10 rounded-3xl border-dashed">No active orders.</div>
+    </div>
+</div>
+
+<div id="view-ledger" class="view-section hidden animate-in">
+    <div class="max-w-6xl mx-auto p-4">
+        
+        <div id="ledger-sub-nav-mobile" class="flex md:hidden bg-[#432818]/10 p-1 rounded-2xl border border-[#432818]/5 mb-6 gap-1">
+            <button onclick="switchLedgerTab('debts')" id="tab-m-debts" class="flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all bg-[#E2CB9F] text-[#432818] shadow-md">Debts</button>
+            <button onclick="switchLedgerTab('manual')" id="tab-m-manual" class="flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all opacity-50 hover:bg-[#E2CB9F]/50">Manual</button>
+            <button onclick="switchLedgerTab('revenue')" id="tab-m-revenue" class="flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all opacity-50 hover:bg-[#E2CB9F]/50">Revenue</button>
+        </div>
+
+        <div id="ledger-sub-nav-desktop" class="hidden md:flex bg-[#432818]/10 p-1 rounded-2xl border border-[#432818]/5 mb-6 gap-1">
+            <button onclick="switchLedgerTab('debts')" id="tab-d-debts" class="flex-1 py-3 rounded-xl text-xs font-black uppercase transition-all bg-[#E2CB9F] text-[#432818] shadow-md">Active Ledger</button>
+            <button onclick="switchLedgerTab('revenue')" id="tab-d-revenue" class="flex-1 py-3 rounded-xl text-xs font-black uppercase transition-all opacity-50 hover:bg-[#E2CB9F]/50">Revenue Logs</button>
+        </div>
+
+        <div id="ledger-workspace" class="desktop-active">
+            
+            <div id="sec-debts" class="w-full">
+                <div class="relative mb-4">
+                    <i data-lucide="search" class="absolute left-4 top-3.5 w-5 h-5 opacity-40 text-[#432818]"></i>
+                    <input type="text" id="searchInput" onkeyup="filterUsers()" placeholder="Search names..." class="w-full bg-white/60 border-2 border-transparent focus:border-[#432818]/10 rounded-2xl pl-12 pr-4 py-3 font-bold text-[#432818] outline-none focus:bg-white transition-all shadow-sm placeholder-[#432818]/40">
+                </div>
+                <div id="ledger-list" class="grid grid-cols-2 gap-3 xl:grid-cols-3"></div>
+            </div>
+
+            <div id="sec-manual" class="hidden w-full">
+                <div class="bg-white p-6 rounded-[2.5rem] shadow-xl border border-[#432818]/10 space-y-4 max-w-md mx-auto md:max-w-full">
+                    <h2 class="text-xl font-black uppercase italic tracking-tight flex items-center gap-2"><i data-lucide="plus-circle" class="w-5 h-5"></i> New Order</h2>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-black uppercase opacity-50 ml-2">Customer Name</label>
+                        <input type="text" id="manualName" placeholder="e.g. Jack" class="w-full bg-[#E2CB9F]/20 border-2 border-[#432818]/10 rounded-2xl px-4 py-3 text-[#432818] font-bold placeholder-[#432818]/30 outline-none focus:border-[#432818]/50 transition-all">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-black uppercase opacity-50 ml-2">Item</label>
+                        <select id="manualItem" onchange="updatePricePreview('manualItem', 'manualPrice', 'manualSizeContainer', 'manualSize')" class="w-full bg-[#E2CB9F]/20 border-2 border-[#432818]/10 rounded-2xl px-4 py-3 text-[#432818] font-bold outline-none focus:border-[#432818]/50 transition-all appearance-none"></select>
+                    </div>
+                    <div id="manualSizeContainer" class="hidden space-y-1">
+                        <label class="text-[10px] font-black uppercase opacity-50 ml-2">Size</label>
+                        <div class="flex bg-[#E2CB9F]/20 p-1 rounded-2xl">
+                            <button onclick="setManualSize('Large')" id="btn-man-l" class="flex-1 py-2 rounded-xl text-xs font-black bg-[#432818] text-[#E2CB9F] shadow-sm transition-all">Large</button>
+                            <button onclick="setManualSize('Small')" id="btn-man-s" class="flex-1 py-2 rounded-xl text-xs font-black opacity-50 transition-all">Small</button>
+                        </div>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-black uppercase opacity-50 ml-2">Price ($)</label>
+                        <input type="number" id="manualPrice" step="0.50" class="w-full bg-[#E2CB9F]/20 border-2 border-[#432818]/10 rounded-2xl px-4 py-3 text-[#432818] font-bold placeholder-[#432818]/30 outline-none focus:border-[#432818]/50 transition-all">
+                    </div>
+                    <button onclick="submitManualOrder()" class="w-full bg-[#432818] text-[#E2CB9F] py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-transform uppercase tracking-wide mt-2">Add to Ledger</button>
+                </div>
+            </div>
+
+        </div>
+
+        <div id="sec-revenue" class="hidden w-full mt-2">
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-xl border border-[#432818]/10 text-center mb-4">
+                <h2 class="text-[10px] font-black uppercase opacity-50 tracking-widest mt-2">Lifetime Revenue</h2>
+                <p id="lifetime-total" class="text-4xl font-black text-green-600 mt-1">$0.00</p>
+            </div>
+            <h3 class="font-black text-lg italic opacity-50 ml-2 mb-2">Daily Logs (Tap to Expand)</h3>
+            <div id="revenue-list" class="space-y-2 pb-10"></div>
+        </div>
+
+    </div>
+</div>
+
+<div id="quickAddModal" class="fixed inset-0 z-[80] pointer-events-none flex items-end sm:items-center justify-center hidden">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto" onclick="closeQuickAdd()"></div>
+    <div class="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2rem] p-6 relative z-10 shadow-2xl space-y-4 pb-10 pointer-events-auto modal-enter text-[#432818]">
+        <div class="flex justify-between items-center">
+            <div><h3 class="text-xl font-black italic">Quick Add</h3><p id="quickAddName" class="text-sm font-bold opacity-50 uppercase">Name</p></div>
+            <button onclick="closeQuickAdd()" class="bg-[#E2CB9F] p-2 rounded-full"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <select id="quickItem" onchange="updatePricePreview('quickItem', 'quickPrice', 'quickSizeContainer', 'quickSize')" class="w-full bg-[#E2CB9F]/20 border-2 border-[#432818]/10 rounded-2xl px-4 py-3 text-[#432818] font-bold outline-none appearance-none"><option value="">-- Choose Item --</option></select>
+        <div id="quickSizeContainer" class="hidden space-y-1">
+            <div class="flex bg-[#E2CB9F]/20 p-1 rounded-2xl">
+                <button onclick="setQuickSize('Large')" id="q-btn-l" class="flex-1 py-2 rounded-xl text-xs font-black bg-[#432818] text-[#E2CB9F] shadow-sm transition-all">Large</button>
+                <button onclick="setQuickSize('Small')" id="q-btn-s" class="flex-1 py-2 rounded-xl text-xs font-black opacity-50 transition-all">Small</button>
+            </div>
+        </div>
+        <input type="number" id="quickPrice" class="w-full bg-[#E2CB9F]/20 border-2 border-[#432818]/10 rounded-2xl px-4 py-3 text-[#432818] font-bold" placeholder="Price">
+        <button onclick="submitQuickAdd()" class="w-full bg-[#432818] text-[#E2CB9F] py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-transform uppercase">Add Item</button>
+    </div>
+</div>
+
+<div id="userDetailsModal" class="fixed inset-0 z-[60] pointer-events-none flex items-end sm:items-center justify-center hidden">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto" onclick="closeUserDetails()"></div>
+    <div class="bg-[#E2CB9F] w-full max-w-sm rounded-t-[2rem] sm:rounded-[2rem] relative z-10 shadow-2xl pointer-events-auto modal-enter flex flex-col max-h-[85vh]">
+        <div class="p-6 border-b border-[#432818]/10 bg-[#E2CB9F] rounded-t-[2rem] flex justify-between items-start">
+            <div><h3 id="detailName" class="text-3xl font-black text-[#432818] leading-none">Name</h3><p id="detailTotal" class="text-lg font-bold opacity-60 mt-1">$0.00 Due</p></div>
+            <button onclick="closeUserDetails()" class="bg-[#432818]/10 p-2 rounded-full"><i data-lucide="x" class="w-6 h-6"></i></button>
+        </div>
+        <div class="p-4 overflow-y-auto flex-1 space-y-2" id="detailList"></div>
+    </div>
+</div>
+
+<div id="toast-layer" class="fixed top-20 left-4 right-4 z-[90] pointer-events-none"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+  import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, setDoc, getDocs, query, orderBy, serverTimestamp, addDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+  import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
+
+  const firebaseConfig = { apiKey: "AIzaSyCMcxuH-8Pc0t8eC71xOU8TXLu0ZoF-RG4", authDomain: "mitches-coffee.firebaseapp.com", projectId: "mitches-coffee", storageBucket: "mitches-coffee.firebasestorage.app", messagingSenderId: "789709713646", appId: "1:789709713646:web:3f09ce026b40a85b3f03ff" };
+  const VAPID_KEY = "BF3iJzRgdCJq3LAFW2c05_5m-dGyzGhS74-_G4ty609IzftV92_inFfBP9ThuDAZ7FJd2V27VvNFgJsyOk8lzg4";
+  const appId = "mitchs-coffee";
+  const EMAIL_SERVICE_ID = "service_m3qf2td"; const EMAIL_TEMPLATE_ID = "template_c7bbquk"; 
+
+  const MENU_ITEMS = [
+    { id: 'hot-latte', name: 'Hot Latte', type: 'drink' },
+    { id: 'iced-latte', name: 'Iced Latte', type: 'drink' },
+    { id: 'vanilla-hot-latte', name: 'Van. Hot', type: 'drink' },
+    { id: 'vanilla-iced-latte', name: 'Van. Iced', type: 'drink' },
+    { id: 'brown-sugar-hot', name: 'Brown Hot', type: 'drink' },
+    { id: 'brown-sugar-iced', name: 'Brown Iced', type: 'drink' },
+    { id: 'hot-cocoa', name: 'Hot Cocoa', type: 'drink' },
+    { id: 'pizza-snaps', name: 'Pizza Snaps', type: 'food' },
+    { id: 'cookie', name: 'Reg. Cookie', type: 'cookie' },
+    { id: 'choc-chip', name: 'Dairy Jumbo', type: 'cookie' },
+    { id: 'pareve-cookie', name: 'Parve Jumbo', type: 'cookie' },
+  ];
+
+  let db, auth, messaging;
+  let state = {
+    kitchenOrders: [],
+    ledgerUsers: {},
+    settings: { deliveryEnabled: true, shopOpen: true, outOfStock: [] },
+    fcmToken: null,
+    manualSize: 'Large',
+    quickSize: 'Large',
+    currentDetailKey: null,
+    pendingDeletes: {}
+  };
+
+  async function init() {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app); auth = getAuth(app); messaging = getMessaging(app);
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+    
+    await signInAnonymously(auth);
+    onAuthStateChanged(auth, user => {
+      if (user) {
+          initKitchen();
+          initLedger();
+          if(Notification.permission === 'granted') requestPushPermission(); 
+      }
+    });
+    
+    populateDropdowns();
+    setInterval(backgroundKitchenSync, 5000);
+  }
+
+  // ================= NAVIGATION =================
+  window.switchView = (view) => {
+      const kNav = document.getElementById('nav-kitchen');
+      const lNav = document.getElementById('nav-ledger');
+      const kView = document.getElementById('view-kitchen');
+      const lView = document.getElementById('view-ledger');
+
+      if (view === 'kitchen') {
+          kView.classList.remove('hidden'); lView.classList.add('hidden');
+          kNav.className = "flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-[#432818] text-[#E2CB9F] shadow-md flex items-center justify-center gap-2";
+          lNav.className = "flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-[#432818]/10 text-[#432818] hover:bg-[#432818]/20 flex items-center justify-center gap-2";
+      } else {
+          kView.classList.add('hidden'); lView.classList.remove('hidden');
+          lNav.className = "flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-[#432818] text-[#E2CB9F] shadow-md flex items-center justify-center gap-2";
+          kNav.className = "flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-[#432818]/10 text-[#432818] hover:bg-[#432818]/20 flex items-center justify-center gap-2";
+      }
+  };
+
+  window.switchLedgerTab = (tab) => {
+      // 1. Manage Visibility of Sections
+      if (tab === 'revenue') {
+          // Revenue View
+          document.getElementById('ledger-workspace').classList.add('hidden');
+          document.getElementById('ledger-workspace').classList.remove('desktop-active'); // Turn off grid
+          document.getElementById('sec-revenue').classList.remove('hidden');
+      } else {
+          // Ledger/Manual View
+          document.getElementById('ledger-workspace').classList.remove('hidden');
+          document.getElementById('ledger-workspace').classList.add('desktop-active'); // Turn on grid for desktop
+          document.getElementById('sec-revenue').classList.add('hidden');
+          
+          // Inside Workspace (Handle Mobile Switching)
+          document.getElementById('sec-debts').classList.toggle('hidden', tab !== 'debts');
+          document.getElementById('sec-manual').classList.toggle('hidden', tab !== 'manual');
+      }
+
+      // 2. Styling Buttons (Mobile)
+      const activeClass = "flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all bg-[#E2CB9F] text-[#432818] shadow-md";
+      const inactiveClass = "flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all opacity-50 hover:bg-[#E2CB9F]/50";
+      
+      document.getElementById('tab-m-debts').className = tab==='debts' ? activeClass : inactiveClass;
+      document.getElementById('tab-m-manual').className = tab==='manual' ? activeClass : inactiveClass;
+      document.getElementById('tab-m-revenue').className = tab==='revenue' ? activeClass : inactiveClass;
+
+      // 3. Styling Buttons (Desktop)
+      const dActive = "flex-1 py-3 rounded-xl text-xs font-black uppercase transition-all bg-[#E2CB9F] text-[#432818] shadow-md";
+      const dInactive = "flex-1 py-3 rounded-xl text-xs font-black uppercase transition-all opacity-50 hover:bg-[#E2CB9F]/50";
+      
+      // If user clicks "manual" or "debts", the "Active Ledger" button is active on desktop
+      const isLedgerActive = (tab === 'debts' || tab === 'manual');
+      document.getElementById('tab-d-debts').className = isLedgerActive ? dActive : dInactive;
+      document.getElementById('tab-d-revenue').className = tab==='revenue' ? dActive : dInactive;
+  };
+
+  // ================= KITCHEN LOGIC =================
+  function initKitchen() {
+      onSnapshot(doc(db, "artifacts", appId, "public", "data", "settings", "global"), snap => {
+          if (snap.exists()) { state.settings = { outOfStock: [], ...snap.data() }; renderKitchenSettings(); }
+      });
+      const q = query(collection(db, "artifacts", appId, "public", "data", "orders"), orderBy("timestamp", "desc"));
+      onSnapshot(q, snap => {
+          state.kitchenOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          renderKitchenList();
+      });
+  }
+
+  async function backgroundKitchenSync() {
+      const snap = await getDocs(collection(db, "artifacts", appId, "public", "data", "orders"));
+      const fresh = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b)=>(b.timestamp?.seconds||0)-(a.timestamp?.seconds||0));
+      const currentSig = state.kitchenOrders.map(o => o.id + o.status).join('|');
+      const newSig = fresh.map(o => o.id + o.status).join('|');
+      if (currentSig !== newSig) {
+          state.kitchenOrders = fresh;
+          renderKitchenList();
+          const pending = fresh.filter(o => o.status === 'pending');
+          if (pending.length && pending[0].id !== state.lastId) {
+              state.lastId = pending[0].id;
+              showToast(`New Order: ${pending[0].customerName}`);
+          }
+      }
+  }
+
+  function renderKitchenSettings() {
+      const { shopOpen, deliveryEnabled, outOfStock } = state.settings;
+      document.getElementById('btn-shop').innerText = shopOpen ? 'OPEN' : 'CLOSED';
+      document.getElementById('btn-shop').className = `w-full py-1.5 rounded-xl font-black text-xs uppercase transition-colors ${shopOpen ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`;
+      document.getElementById('btn-delivery').innerText = deliveryEnabled ? 'ON' : 'OFF';
+      document.getElementById('btn-delivery').className = `w-full py-1.5 rounded-xl font-black text-xs uppercase transition-colors ${deliveryEnabled ? 'bg-blue-600 text-white' : 'bg-[#432818]/20 text-[#432818]/50'}`;
+      document.getElementById('stock-toggles').innerHTML = MENU_ITEMS.map(i => {
+          const isOut = outOfStock.includes(i.id);
+          return `<button onclick="toggleItemStock('${i.id}')" class="px-2 py-1 rounded-lg text-[10px] font-bold uppercase border border-[#432818]/10 transition-all active:scale-95 ${isOut ? 'bg-[#432818]/5 text-[#432818]/40 line-through' : 'bg-green-600 text-white shadow-sm'}">${i.name}</button>`;
+      }).join('');
+  }
+
+  function renderKitchenList() {
+      const container = document.getElementById('kitchen-list');
+      const visible = state.kitchenOrders.filter(o => o.status !== 'completed').sort((a,b) => (b.timestamp?.seconds||0)-(a.timestamp?.seconds||0));
+      document.getElementById('kitchen-empty').classList.toggle('hidden', visible.length > 0);
+      container.innerHTML = visible.map(o => `
+        <div class="bg-white p-4 rounded-[1.5rem] border-2 shadow-lg ${o.status==='completed'?'opacity-50 border-[#432818]/10':'border-[#432818]'} flex flex-col justify-between animate-in">
+            <div class="mb-3">
+                <div class="flex justify-between items-start mb-2"><div class="overflow-hidden"><h3 class="font-black text-lg truncate leading-tight">${o.customerName}</h3>${o.isDelivery ? `<span class="bg-blue-600 text-white text-[10px] font-black px-2 py-0.5 rounded uppercase block w-fit mt-1">Delivery: ${o.dormRoom}</span>` : `<span class="bg-[#E2CB9F] text-[#432818] text-[10px] font-black px-2 py-0.5 rounded uppercase block w-fit mt-1">Pickup</span>`}</div><button onclick="deleteKitchenOrder('${o.id}')" class="text-stone-300 hover:text-red-500 p-1"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>
+                <div class="space-y-1 text-xs font-medium opacity-80">${o.items.map(it => `<div class="border-b border-[#432818]/10 pb-1 last:border-0 flex justify-between"><span class="font-bold">${it.qty}x ${it.name}</span><span class="opacity-60">${it.size||''} ${it.milk&&it.milk!=='Regular'?`(${it.milk})`:''} ${it.syrupType&&it.syrupType!=='None'?`(${it.syrupPumps}p ${it.syrupType})`:''}</span></div>`).join('')}</div>
+            </div>
+            <div class="flex flex-col gap-2 mt-auto">
+                ${o.status === 'pending' ? `<button onclick="setStatus('${o.id}', 'brewing')" class="w-full bg-[#432818] text-[#E2CB9F] py-3 rounded-xl font-black text-sm uppercase shadow-md active:scale-95">Start Brewing</button>` : ''}
+                ${o.status === 'brewing' ? `<button onclick="setStatus('${o.id}', 'ready')" class="w-full bg-green-600 text-white py-3 rounded-xl font-black text-sm uppercase shadow-md active:scale-95">Ready for Pickup</button>` : ''}
+                ${o.status === 'ready' ? `<button onclick="setStatus('${o.id}', 'completed')" class="w-full bg-[#432818]/20 text-[#432818] py-3 rounded-xl font-black text-sm uppercase shadow-md active:scale-95">Archive</button>` : ''}
+                <div class="text-[10px] font-black text-center opacity-30 uppercase tracking-widest">${o.status}</div>
+            </div>
+        </div>`).join('');
+        lucide.createIcons();
+  }
+
+  // ================= LEDGER LOGIC =================
+  function initLedger() {
+      const q = query(collection(db, "artifacts", appId, "public", "data", "orders"), orderBy("timestamp", "desc"));
+      onSnapshot(q, snap => {
+          const users = {};
+          const revenueMap = {};
+          let grandTotal = 0;
+
+          snap.docs.forEach(docSnap => {
+              const data = docSnap.data();
+              if (!data.manualEntry && data.status === 'pending') return;
+              
+              // 1. User Debt Logic
+              const name = (data.customerName || "Unknown").trim();
+              const key = name.toLowerCase();
+              if(!users[key]) users[key] = { name, total: 0, orders: [], lastTime: 0 };
+              if(/[A-Z]/.test(name)) users[key].name = name;
+              
+              let orderTotal = data.total || 0;
+              if(data.items && !data.total) orderTotal = data.items.reduce((s, i) => s + (i.price*i.qty), 0);
+              
+              if(!data.paid) users[key].total += orderTotal;
+              const time = data.timestamp ? data.timestamp.seconds : 0;
+              if(time > users[key].lastTime) users[key].lastTime = time;
+              const summary = data.items ? data.items.map(i=>`${i.qty}x ${i.name}`).join(', ') : "Manual Order";
+              users[key].orders.push({ id: docSnap.id, summary, total: orderTotal, paid: data.paid, time });
+
+              // 2. Revenue Logic
+              if(data.status !== 'cancelled') {
+                  const dateObj = new Date(time * 1000);
+                  const dateKey = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                  
+                  if(!revenueMap[dateKey]) revenueMap[dateKey] = { total: 0, count: 0, orders: [] };
+                  revenueMap[dateKey].total += orderTotal;
+                  revenueMap[dateKey].count += 1;
+                  
+                  revenueMap[dateKey].orders.push({
+                      time: dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                      name: name,
+                      items: summary,
+                      price: orderTotal
+                  });
+                  grandTotal += orderTotal;
+              }
+          });
+
+          state.ledgerUsers = users;
+          renderLedger();
+          if(state.currentDetailKey && users[state.currentDetailKey]) renderUserDetails(state.currentDetailKey);
+          renderRevenue(revenueMap, grandTotal);
+      });
+  }
+
+  function renderRevenue(revenueMap, grandTotal) {
+      document.getElementById('lifetime-total').innerText = `$${grandTotal.toFixed(2)}`;
+      const sortedDates = Object.keys(revenueMap).sort((a,b) => new Date(b) - new Date(a));
+      const list = document.getElementById('revenue-list');
+      
+      list.innerHTML = sortedDates.map(date => {
+          const dayData = revenueMap[date];
+          const dayOrdersHtml = dayData.orders.map(o => `
+              <div class="flex justify-between items-start text-xs border-b border-[#432818]/5 pb-2 last:border-0">
+                  <div>
+                      <span class="font-black text-[#432818]">${o.name}</span>
+                      <span class="opacity-50 ml-1 font-bold">${o.time}</span>
+                      <div class="opacity-70 leading-tight">${o.items}</div>
+                  </div>
+                  <div class="font-black">$${o.price.toFixed(2)}</div>
+              </div>
+          `).join('');
+
+          return `
+          <div onclick="toggleDayDetails('${date.replace(/[^a-zA-Z0-9]/g, '')}')" class="bg-white p-4 rounded-2xl shadow-sm border border-[#432818]/5 cursor-pointer active:scale-[0.98] transition-transform">
+              <div class="flex justify-between items-center">
+                  <div>
+                      <h3 class="font-bold text-[#432818] text-sm">${date}</h3>
+                      <p class="text-[10px] uppercase font-black opacity-40">${dayData.count} orders</p>
+                  </div>
+                  <div class="text-xl font-black text-green-600">
+                      $${dayData.total.toFixed(2)}
+                  </div>
+              </div>
+              <div id="details-${date.replace(/[^a-zA-Z0-9]/g, '')}" class="hidden mt-3 pt-3 border-t border-dashed border-[#432818]/10 space-y-2">
+                  ${dayOrdersHtml}
+              </div>
+          </div>
+      `}).join('');
+  }
+
+  window.toggleDayDetails = (id) => {
+      const el = document.getElementById(`details-${id}`);
+      if(el) el.classList.toggle('hidden');
+  };
+
+  window.filterUsers = () => { renderLedger(); };
+
+  function renderLedger() {
+      const container = document.getElementById('ledger-list');
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const keys = Object.keys(state.ledgerUsers).filter(k => k.includes(search));
+      keys.sort((a,b) => {
+          const ua = state.ledgerUsers[a], ub = state.ledgerUsers[b];
+          if(ua.total > 0 && ub.total <= 0) return -1;
+          if(ua.total <= 0 && ub.total > 0) return 1;
+          return ub.lastTime - ua.lastTime;
+      });
+      container.innerHTML = keys.map(k => {
+          const u = state.ledgerUsers[k];
+          const hasDebt = u.total > 0;
+          return `
+            <div class="relative bg-white rounded-[1.5rem] p-4 flex flex-col justify-between h-32 shadow-md border-2 ${hasDebt ? 'border-[#432818]/5' : 'border-green-500/20'} active:scale-95 transition-transform">
+                <div onclick="openUserDetails('${k}')" class="flex-1 flex flex-col justify-between cursor-pointer">
+                    <div>
+                        <h3 class="font-black text-[#432818] text-lg leading-tight truncate capitalize">${u.name}</h3>
+                        <p class="text-[10px] font-bold uppercase opacity-40 mt-1">${hasDebt ? u.orders.filter(o=>!o.paid).length + ' Unpaid' : 'Settled'}</p>
+                    </div>
+                    <div class="text-2xl font-black tracking-tight ${hasDebt ? 'text-[#432818]' : 'text-green-600'}">
+                        ${hasDebt ? `$${u.total.toFixed(2)}` : '<i data-lucide="check-circle-2" class="w-7 h-7"></i>'}
+                    </div>
+                </div>
+                <button onclick="openQuickAdd('${k}')" class="absolute bottom-3 right-3 w-9 h-9 bg-[#432818] text-[#E2CB9F] rounded-full flex items-center justify-center shadow-lg hover:bg-black active:scale-90 transition-all z-10">
+                    <i data-lucide="plus" class="w-5 h-5"></i>
+                </button>
+            </div>`;
+      }).join('');
+      lucide.createIcons();
+  }
+
+  // ================= UTILS =================
+  window.toggleShopOpen = () => setDoc(doc(db, "artifacts", appId, "public", "data", "settings", "global"), { shopOpen: !state.settings.shopOpen }, { merge: true });
+  window.toggleDeliverySetting = () => setDoc(doc(db, "artifacts", appId, "public", "data", "settings", "global"), { deliveryEnabled: !state.settings.deliveryEnabled }, { merge: true });
+  window.toggleItemStock = (id) => {
+      let s = state.settings.outOfStock || [];
+      s = s.includes(id) ? s.filter(x=>x!==id) : [...s, id];
+      setDoc(doc(db, "artifacts", appId, "public", "data", "settings", "global"), { outOfStock: s }, { merge: true });
+  };
+  window.setStatus = (id, s) => { updateDoc(doc(db,"artifacts",appId,"public","data","orders",id), { status: s }); if(s==='ready') sendNotify(id); };
+  window.deleteKitchenOrder = (id) => deleteDoc(doc(db,"artifacts",appId,"public","data","orders",id));
+
+  // Ledger Actions
+  window.openUserDetails = (key) => { state.currentDetailKey = key; renderUserDetails(key); document.getElementById('userDetailsModal').classList.remove('hidden'); };
+  window.closeUserDetails = () => { document.getElementById('userDetailsModal').classList.add('hidden'); state.currentDetailKey = null; };
+  function renderUserDetails(key) {
+      const u = state.ledgerUsers[key];
+      if(!u) return closeUserDetails();
+      document.getElementById('detailName').innerText = u.name;
+      document.getElementById('detailTotal').innerHTML = u.total <= 0 ? '<span class="text-green-700 font-bold">All Paid</span>' : `$${u.total.toFixed(2)} Due`;
+      const list = document.getElementById('detailList');
+      const sorted = [...u.orders].sort((a,b) => (a.paid === b.paid) ? 0 : a.paid ? 1 : -1);
+      list.innerHTML = sorted.map(o => {
+          if(state.pendingDeletes[o.id]) return `<div class="bg-[#432818] p-4 rounded-2xl flex justify-between items-center shadow-inner animate-in"><span class="text-[#E2CB9F] font-bold text-sm">Deleted.</span><button onclick="undoDelete('${o.id}')" class="bg-[#E2CB9F] text-[#432818] px-4 py-1.5 rounded-lg text-xs font-black uppercase shadow-lg">Undo</button></div>`;
+          return `
+            <div class="bg-white p-4 rounded-2xl flex items-center shadow-sm gap-3">
+                <div class="pr-2 border-r border-gray-100 flex-shrink-0"><button onclick="softDelete('${o.id}')" class="bg-gray-50 text-gray-300 hover:bg-red-50 hover:text-red-400 p-2 rounded-xl transition-colors"><i data-lucide="trash-2" class="w-5 h-5"></i></button></div>
+                <div class="flex-1"><div class="font-bold text-[#432818] text-sm leading-tight">${o.summary}</div><div class="text-[10px] opacity-50 font-black uppercase mt-0.5">${new Date(o.time*1000).toLocaleDateString()} • $${o.total.toFixed(2)}</div></div>
+                <div class="flex-shrink-0">${o.paid ? `<button onclick="togglePaid('${o.id}', false)" class="text-xs font-bold text-green-600 bg-green-100 px-3 py-2 rounded-xl border border-green-200">PAID</button>` : `<button onclick="togglePaid('${o.id}', true)" class="bg-green-500 text-white text-[10px] font-black uppercase px-4 py-2.5 rounded-xl shadow active:scale-95">Pay</button>`}</div>
+            </div>`;
+      }).join('');
+      lucide.createIcons();
+  }
+  window.togglePaid = (id, val) => updateDoc(doc(db, "artifacts", appId, "public", "data", "orders", id), { paid: val });
+  window.softDelete = (id) => { state.pendingDeletes[id] = setTimeout(() => { deleteDoc(doc(db, "artifacts", appId, "public", "data", "orders", id)); delete state.pendingDeletes[id]; }, 4000); renderUserDetails(state.currentDetailKey); };
+  window.undoDelete = (id) => { clearTimeout(state.pendingDeletes[id]); delete state.pendingDeletes[id]; renderUserDetails(state.currentDetailKey); };
+
+  // Manual/Quick Entry
+  function populateDropdowns() {
+      ['manualItem', 'quickItem'].forEach(id => {
+          const sel = document.getElementById(id);
+          sel.innerHTML = '<option value="">-- Choose Item --</option>';
+          MENU_ITEMS.forEach(i => sel.innerHTML += `<option value="${i.id}" data-type="${i.type}">${i.name}</option>`);
+      });
+  }
+  
+  window.updatePricePreview = (selId='manualItem', priceId='manualPrice', containerId='manualSizeContainer', stateVar='manualSize') => {
+      const sel = document.getElementById(selId);
+      const opt = sel.options[sel.selectedIndex];
+      if(!opt.value) return;
+      const type = opt.getAttribute('data-type');
+      document.getElementById(containerId).className = (type === 'drink') ? 'space-y-1 block animate-in' : 'hidden';
+      const size = state[stateVar];
+      const p = (type === 'drink' && size === 'Small') ? 4.00 : (type==='drink'?5.00:2.00);
+      let finalPrice = p;
+      if(opt.value==='cookie') finalPrice = 1.00;
+      else if(opt.value==='hot-cocoa' && size === 'Small') finalPrice = 3.50;
+      else if(opt.value==='hot-cocoa') finalPrice = 4.00;
+      document.getElementById(priceId).value = finalPrice.toFixed(2);
+  };
+
+  window.setManualSize = (s) => { state.manualSize = s; updateSizeButtons('btn-man', s); updatePricePreview(); };
+  window.setQuickSize = (s) => { state.quickSize = s; updateSizeButtons('q-btn', s); updatePricePreview('quickItem', 'quickPrice', 'quickSizeContainer', 'quickSize'); };
+  
+  function updateSizeButtons(prefix, size) {
+      document.getElementById(`${prefix}-l`).className = size==='Large' ? "flex-1 py-2 rounded-xl text-xs font-black bg-[#432818] text-[#E2CB9F] shadow-sm transition-all" : "flex-1 py-2 rounded-xl text-xs font-black opacity-50 transition-all";
+      document.getElementById(`${prefix}-s`).className = size==='Small' ? "flex-1 py-2 rounded-xl text-xs font-black bg-[#432818] text-[#E2CB9F] shadow-sm transition-all" : "flex-1 py-2 rounded-xl text-xs font-black opacity-50 transition-all";
+  }
+
+  window.openQuickAdd = (key) => {
+      const user = state.ledgerUsers[key];
+      document.getElementById('quickAddName').innerText = user ? user.name : 'Unknown';
+      document.getElementById('quickAddModal').classList.remove('hidden');
+  };
+  window.closeQuickAdd = () => document.getElementById('quickAddModal').classList.add('hidden');
+
+  window.submitManualOrder = async () => addOrder(document.getElementById('manualName').value, 'manualItem', 'manualPrice', state.manualSize);
+  window.submitQuickAdd = async () => { await addOrder(document.getElementById('quickAddName').innerText, 'quickItem', 'quickPrice', state.quickSize); closeQuickAdd(); };
+
+  async function addOrder(name, itemSelId, priceId, size) {
+      const itemSelect = document.getElementById(itemSelId);
+      const price = parseFloat(document.getElementById(priceId).value);
+      if(!name || isNaN(price) || !itemSelect.value) return alert("Missing info");
+      const itemName = itemSelect.options[itemSelect.selectedIndex].text;
+      await addDoc(collection(db, "artifacts", appId, "public", "data", "orders"), {
+          customerName: name, items: [{ name: itemName, qty: 1, price: price, size: size }],
+          total: price, status: "completed", paid: false, isDelivery: false, timestamp: serverTimestamp(), manualEntry: true
+      });
+      showToast("Added to Ledger");
+      if(itemSelId === 'manualItem') { document.getElementById('manualName').value = ''; if(window.innerWidth < 768) switchLedgerTab('debts'); }
+  }
+
+  function sendNotify(id) {
+      const order = state.kitchenOrders.find(o => o.id === id);
+      if(order && order.customerEmail) {
+          const msg = `Hey ${order.customerName}, your order is READY! Room 101.`;
+          emailjs.send(EMAIL_SERVICE_ID, EMAIL_TEMPLATE_ID, { to_email: order.customerEmail, name: order.customerName, email: "noreply@mitchscoffee.com", message: msg });
+      }
+  }
+  window.requestPushPermission = async () => {
+    try { const token = await getToken(messaging, { vapidKey: VAPID_KEY }); if (token) { state.fcmToken = token; showToast("Admin Notifications On"); document.getElementById('permBtn').innerText = "Alerts ON"; document.getElementById('permBtn').className = "text-[10px] font-bold bg-green-600 text-white px-3 py-1 rounded-lg uppercase border-none"; } } catch (err) { console.log(err); }
+  };
+  function showToast(m) { const t = document.getElementById("toast-layer"); t.innerHTML = `<div class="animate-bounce bg-[#432818] text-[#E2CB9F] px-6 py-3 rounded-2xl shadow-2xl text-center font-bold mx-auto max-w-xs">${m}</div>`; setTimeout(() => { t.innerHTML = ''; }, 3000); }
+
+  init();
+</script>
+</body>
+</html>
