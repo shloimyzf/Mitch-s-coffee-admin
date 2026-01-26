@@ -34,6 +34,13 @@
     .hide-scroll::-webkit-scrollbar { display: none; }
     .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
 
+    /* FIX: Keep content inside rounded corners during scroll */
+    .modal-scroll-area { 
+        overflow-y: auto; 
+        border-radius: inherit; 
+        -webkit-overflow-scrolling: touch;
+    }
+
     /* TABLET/DESKTOP LOGIC */
     @media (min-width: 768px) {
         #ledger-workspace.desktop-active {
@@ -136,7 +143,6 @@
                         </div>
                     </div>
                     
-                    <!-- MANUAL QUANTITY & OAT MILK SECTION -->
                     <div class="flex gap-3">
                         <div class="space-y-1 flex-1">
                             <label class="text-[10px] font-black uppercase opacity-50 ml-2">Quantity</label>
@@ -161,8 +167,7 @@
         <div id="sec-revenue" class="hidden w-full mt-2">
             <div class="bg-white p-6 rounded-[2.5rem] shadow-xl border border-[#432818]/10 text-center mb-4">
                 <h2 class="text-[10px] font-black uppercase opacity-50 tracking-widest mt-2">Lifetime Revenue</h2>
-                <div id="lifetime-total"></div> <!-- Populated by JS -->
-            </div>
+                <div id="lifetime-total"></div> </div>
             <h3 class="font-black text-lg italic opacity-50 ml-2 mb-2">Daily Logs (Tap to Expand)</h3>
             <div id="revenue-list" class="space-y-2 pb-10"></div>
         </div>
@@ -185,7 +190,6 @@
             </div>
         </div>
         
-        <!-- QUICK ADD QUANTITY & OAT MILK SECTION -->
         <div class="flex gap-3">
              <div class="space-y-1 flex-1">
                  <input type="number" id="quickQty" oninput="updatePricePreview('quickItem', 'quickPrice', 'quickSizeContainer', 'quickSize', 'quickQty')" value="1" min="1" class="w-full bg-[#E2CB9F]/20 border-2 border-[#432818]/10 rounded-2xl px-4 py-3 text-[#432818] font-bold" placeholder="Quantity">
@@ -224,19 +228,6 @@
   const appId = "mitchs-coffee";
   const EMAIL_SERVICE_ID = "service_m3qf2td"; const EMAIL_TEMPLATE_ID = "template_c7bbquk"; 
 
-  // --- COSTS CONFIGURATION (Your Cost to Make) ---
-  const COSTS = {
-      'cookie': 0.19,
-      'choc-chip': 0.38,
-      'pareve-cookie': 0.38,
-      'pizza-snaps': 0.23,
-      'hot-cocoa': 0.73,
-      // Default lattes (base cost)
-      'drink-base': 1.50, 
-      // Extra cost for Oat Milk
-      'oat-milk': 0.95 
-  };
-
   const MENU_ITEMS = [
     { id: 'hot-latte', name: 'Hot Latte', type: 'drink' },
     { id: 'iced-latte', name: 'Iced Latte', type: 'drink' },
@@ -244,7 +235,7 @@
     { id: 'vanilla-iced-latte', name: 'Van. Iced', type: 'drink' },
     { id: 'brown-sugar-hot', name: 'Brown Hot', type: 'drink' },
     { id: 'brown-sugar-iced', name: 'Brown Iced', type: 'drink' },
-    { id: 'hot-cocoa', name: 'Hot Cocoa', type: 'drink' }, 
+    { id: 'hot-cocoa', name: 'Hot Cocoa', type: 'drink' },
     { id: 'pizza-snaps', name: 'Pizza Snaps', type: 'food' },
     { id: 'cookie', name: 'Reg. Cookie', type: 'cookie' },
     { id: 'choc-chip', name: 'Dairy Jumbo', type: 'cookie' },
@@ -448,34 +439,31 @@
       });
   }
 
-  // Helper: Calculate Cost & Profit
+  // Helper: Calculate Cost & Profit (FIXED LOGIC)
   function calculateProfit(orderData, totalRevenue) {
-    if (!orderData.items) return 0; // Can't calculate for undefined manual entries without items
+    if (!orderData.items) return 0;
     
     let totalCost = 0;
     orderData.items.forEach(item => {
         let unitCost = 0;
-        
-        // Find ID based on Name (Legacy check) or just infer type
-        const menuItem = MENU_ITEMS.find(m => m.name === item.name);
-        const itemId = menuItem ? menuItem.id : '';
+        const n = item.name; // Short name like "Van. Hot"
 
-        // Cost Logic
-        if (COSTS[itemId]) {
-            unitCost = COSTS[itemId];
-        } else if (item.name.toLowerCase().includes('latte') || item.name.toLowerCase().includes('cappuccino')) {
-            unitCost = COSTS['drink-base'];
-        } else if (item.name.toLowerCase().includes('cookie')) {
-            unitCost = COSTS['cookie']; 
+        // Cost Logic matching Display Names
+        if (n.includes('Latte') || n.includes('Van.') || n.includes('Brown')) {
+            unitCost = 1.50; // drink-base
+        } else if (n.includes('Hot Cocoa')) {
+            unitCost = 0.73;
+        } else if (n.includes('Pizza')) {
+            unitCost = 0.23;
+        } else if (n.includes('Reg. Cookie') || n === 'Cookie') {
+            unitCost = 0.19;
+        } else if (n.includes('Jumbo')) {
+            unitCost = 0.38; 
         }
 
-        // Special override for "Jumbo" logic if names match
-        if (item.name.includes('Dairy Jumbo') || item.name.includes('Parve Jumbo')) unitCost = COSTS['choc-chip'];
-
-        // Oat Milk Cost Addition
-        // Check if stored as separate property OR part of the name
-        if (item.milk === 'Oat' || item.name.includes('(Oat)')) {
-            unitCost += COSTS['oat-milk'];
+        // Oat Milk Cost
+        if (item.milk === 'Oat') {
+            unitCost += 0.95;
         }
 
         totalCost += (unitCost * (item.qty || 1));
@@ -767,5 +755,3 @@
 </script>
 </body>
 </html>
-
-
